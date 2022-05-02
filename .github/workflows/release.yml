@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: clippy, rustfmt
+          profile: minimal
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: get version
+        id: version
+        run: echo ::set-output name=version::${GITHUB_REF/refs\/tags\//}
+
+      - name: build
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: archive
+        id: archive
+        run: |
+          dir="tbpi_x86_64-unknown-linux-gnu_${{ steps.version.outputs.version }}"
+          mkdir -p "$dir"
+          cp target/x86_64-unknown-linux-gnu/release/tbpi "$dir/"
+          tar czf "$dir.tar.gz" "$dir"
+          echo "::set-output name=asset::$dir.tar.gz"
+
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: ${{ steps.archive.outputs.asset }}
+          token: ${{ secrets.GITHUB_TOKEN }}
