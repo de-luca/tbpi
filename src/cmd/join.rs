@@ -1,4 +1,4 @@
-use crate::cmd::{check_msg, interaction_reply, now_playing_embed, Res};
+use crate::cmd::{check_msg, defer_interaction, now_playing_embed, Res};
 use serenity::async_trait;
 use serenity::client::Context;
 use serenity::http::Http;
@@ -87,6 +87,13 @@ impl VoiceEventHandler for ChannelDurationNotifier {
 }
 
 pub async fn join(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
+    check_msg(
+        cmd.create_interaction_response(&ctx.http, |response| {
+            defer_interaction(response, None, true)
+        })
+        .await,
+    );
+
     let guild = ctx.cache.guild(cmd.guild_id.unwrap()).await.unwrap();
 
     let channel_option = cmd
@@ -103,8 +110,8 @@ pub async fn join(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
             ChannelType::Voice => ctx.cache.channel(channel.id).await.unwrap(),
             _ => {
                 check_msg(
-                    cmd.create_interaction_response(&ctx.http, |response| {
-                        interaction_reply(response, "Must be a voice channel".to_string(), true)
+                    cmd.edit_original_interaction_response(&ctx.http, |response| {
+                        response.content("Must be a voice channel")
                     })
                     .await,
                 );
@@ -113,8 +120,8 @@ pub async fn join(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
         },
         _ => {
             check_msg(
-                cmd.create_interaction_response(&ctx.http, |response| {
-                    interaction_reply(response, "Must provide a channel".to_string(), true)
+                cmd.edit_original_interaction_response(&ctx.http, |response| {
+                    response.content("Must provide a channel")
                 })
                 .await,
             );
@@ -155,15 +162,15 @@ pub async fn join(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
         // );
 
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(response, format!("Joined {}", channel.mention()), true)
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content(format!("Joined {}", channel.mention()))
             })
             .await,
         );
     } else {
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(response, "Error joining the channel".to_string(), true)
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content("Error joining the channel")
             })
             .await,
         );

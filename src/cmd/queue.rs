@@ -1,4 +1,4 @@
-use crate::cmd::{check_msg, interaction_reply, Res};
+use crate::cmd::{check_msg, defer_interaction, Res};
 use serenity::{
     client::Context,
     model::gateway::Activity,
@@ -9,6 +9,13 @@ use serenity::{
 use songbird::input::Restartable;
 
 pub async fn queue(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
+    check_msg(
+        cmd.create_interaction_response(&ctx.http, |response| {
+            defer_interaction(response, None, true)
+        })
+        .await,
+    );
+
     let url_option = cmd
         .data
         .options
@@ -22,12 +29,8 @@ pub async fn queue(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
         ApplicationCommandInteractionDataOptionValue::String(url) => url.clone(),
         _ => {
             check_msg(
-                cmd.create_interaction_response(&ctx.http, |response| {
-                    interaction_reply(
-                        response,
-                        "Must provide a URL to a video or audio".to_string(),
-                        true,
-                    )
+                cmd.edit_original_interaction_response(&ctx.http, |response| {
+                    response.content("Must provide a URL to a video or audio")
                 })
                 .await,
             );
@@ -37,8 +40,8 @@ pub async fn queue(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
 
     if !url.starts_with("http") {
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(response, "Must provide a valid URL".to_string(), true)
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content("Must provide a valid URL")
             })
             .await,
         );
@@ -62,8 +65,8 @@ pub async fn queue(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
             Err(why) => {
                 println!("Err starting source: {:?}", why);
                 check_msg(
-                    cmd.create_interaction_response(&ctx.http, |response| {
-                        interaction_reply(response, "Error sourcing ffmpeg".to_string(), true)
+                    cmd.edit_original_interaction_response(&ctx.http, |response| {
+                        response.content("Error sourcing ffmpeg")
                     })
                     .await,
                 );
@@ -83,32 +86,24 @@ pub async fn queue(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
             .clone()
             .unwrap();
 
-        if handler.queue().len() == 1 {
-            ctx.set_activity(Activity::listening(&title)).await;
-        }
-
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(
-                    response,
-                    format!(
-                        "Queued **{}** at position {}",
-                        &title,
-                        handler.queue().len(),
-                    ),
-                    true,
-                )
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content(format!(
+                    "Queued **{}** at position {}",
+                    &title,
+                    handler.queue().len()
+                ))
             })
             .await,
         );
+
+        if handler.queue().len() == 1 {
+            ctx.set_activity(Activity::listening(&title)).await;
+        }
     } else {
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(
-                    response,
-                    "Not in a voice channel to play in".to_string(),
-                    true,
-                )
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content("Not in a voice channel to play in")
             })
             .await,
         );

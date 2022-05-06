@@ -1,4 +1,4 @@
-use crate::cmd::{check_msg, interaction_reply, Res};
+use crate::cmd::{check_msg, defer_interaction, Res};
 use serenity::{
     client::Context, model::interactions::application_command::ApplicationCommandInteraction,
     prelude::Mentionable,
@@ -10,6 +10,13 @@ pub enum Op {
 }
 
 pub async fn play_pause(ctx: &Context, cmd: &ApplicationCommandInteraction, op: Op) -> Res {
+    check_msg(
+        cmd.create_interaction_response(&ctx.http, |response| {
+            defer_interaction(response, None, true)
+        })
+        .await,
+    );
+
     let manager = songbird::get(ctx)
         .await
         .expect("Songbird Voice client placed in at initialisation.")
@@ -31,19 +38,13 @@ pub async fn play_pause(ctx: &Context, cmd: &ApplicationCommandInteraction, op: 
         };
 
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(response, content, false)
-            })
-            .await,
+            cmd.edit_original_interaction_response(&ctx.http, |response| response.content(content))
+                .await,
         );
     } else {
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(
-                    response,
-                    "Not playing in a voice channel.".to_string(),
-                    true,
-                )
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content("Not playing in a voice channel.")
             })
             .await,
         );

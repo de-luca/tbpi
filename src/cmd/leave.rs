@@ -1,9 +1,16 @@
-use crate::cmd::{check_msg, interaction_reply, Res};
+use crate::cmd::{check_msg, defer_interaction, Res};
 use serenity::{
     client::Context, model::interactions::application_command::ApplicationCommandInteraction,
 };
 
 pub async fn leave(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
+    check_msg(
+        cmd.create_interaction_response(&ctx.http, |response| {
+            defer_interaction(response, None, true)
+        })
+        .await,
+    );
+
     let guild_id = cmd.guild_id.unwrap();
 
     let manager = songbird::get(ctx)
@@ -22,15 +29,15 @@ pub async fn leave(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
         }
 
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(response, "Left voice channel".to_string(), true)
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content("Left voice channel")
             })
             .await,
         );
     } else {
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(response, "Not in a voice channel".to_string(), true)
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content("Not in a voice channel")
             })
             .await,
         );

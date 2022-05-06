@@ -1,6 +1,7 @@
-use crate::cmd::{check_msg, interaction_reply, Res};
+use crate::cmd::{check_msg, defer_interaction, Res};
+use serenity::builder::CreateEmbed;
 use serenity::{
-    builder::{CreateActionRow, CreateButton, CreateInteractionResponse},
+    builder::{CreateActionRow, CreateButton},
     client::Context,
     futures::StreamExt,
     model::id::UserId,
@@ -47,6 +48,13 @@ impl SkipBtn {
 }
 
 pub async fn skip(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
+    check_msg(
+        cmd.create_interaction_response(&ctx.http, |response| {
+            defer_interaction(response, None, false)
+        })
+        .await,
+    );
+
     let manager = songbird::get(ctx)
         .await
         .expect("Songbird Voice client placed in at initialisation.")
@@ -74,27 +82,29 @@ pub async fn skip(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
         let mut yep_members: HashMap<UserId, String> = HashMap::new();
         yep_members.insert(cmd.user.id, cmd.user.name.clone());
 
-        if meat_users.is_empty() || yep_members.keys().cloned().all(|k| meat_users.contains(&k)) {
+        if meat_users.is_empty() || meat_users.iter().all(|k| yep_members.contains_key(k)) {
             let _ = queue.skip();
             check_msg(
-                cmd.create_interaction_response(&ctx.http, |response| {
-                    interaction_reply(response, "⏭ Skipped current track".to_string(), true)
+                cmd.edit_original_interaction_response(&ctx.http, |response| {
+                    response.content("⏭ Skipped current track")
                 })
                 .await,
             );
-
             return Ok(());
         }
 
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                skip_embed(
-                    response,
-                    InteractionResponseType::ChannelMessageWithSource,
-                    cmd.user.name.clone(),
-                    yep_members.clone(),
-                    nope_members.clone(),
-                )
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response
+                    .create_embed(|e| {
+                        skip_embed(
+                            e,
+                            cmd.user.name.clone(),
+                            yep_members.clone(),
+                            nope_members.clone(),
+                        )
+                    })
+                    .components(|c| c.add_action_row(SkipBtn::action_row()))
             })
             .await,
         );
@@ -120,13 +130,19 @@ pub async fn skip(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
 
                 check_msg(
                     vote.create_interaction_response(&ctx.http, |response| {
-                        skip_embed(
-                            response,
-                            InteractionResponseType::UpdateMessage,
-                            cmd.user.name.clone(),
-                            yep_members.clone(),
-                            nope_members.clone(),
-                        )
+                        response
+                            .kind(InteractionResponseType::UpdateMessage)
+                            .interaction_response_data(|d| {
+                                d.create_embed(|e| {
+                                    skip_embed(
+                                        e,
+                                        cmd.user.name.clone(),
+                                        yep_members.clone(),
+                                        nope_members.clone(),
+                                    )
+                                })
+                                .components(|c| c.add_action_row(SkipBtn::action_row()))
+                            })
                     })
                     .await,
                 );
@@ -136,34 +152,35 @@ pub async fn skip(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
         let content = match yep_members.len() > nope_members.len() {
             true => {
                 let _ = queue.skip();
-                format!(
-                    "Vote to skip succeeded ({}/{})",
-                    yep_members.len(),
-                    nope_members.len()
-                )
+                "Vote to skip succeeded\n⏭ Skipped current track".to_string()
             }
-            false => format!(
-                "Vote to skip failed ({}/{})",
-                nope_members.len(),
-                yep_members.len()
-            ),
+            false => "Vote to skip failed.".to_string(),
         };
+
+        cmd.edit_original_interaction_response(&ctx.http, |response| {
+            response
+                .components(|c| c.set_action_rows(Vec::new()))
+                .create_embed(|e| {
+                    skip_embed(
+                        e,
+                        cmd.user.name.clone(),
+                        yep_members.clone(),
+                        nope_members.clone(),
+                    )
+                    .description("Vote has ended.")
+                })
+        })
+        .await
+        .unwrap();
 
         check_msg(
             cmd.create_followup_message(&ctx.http, |r| r.content(&content))
                 .await,
         );
-        cmd.delete_original_interaction_response(&ctx.http)
-            .await
-            .unwrap();
     } else {
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(
-                    response,
-                    "Not playing in a voice channel.".to_string(),
-                    true,
-                )
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content("Not playing in a voice channel.")
             })
             .await,
         );
@@ -173,12 +190,11 @@ pub async fn skip(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
 }
 
 fn skip_embed(
-    response: &mut CreateInteractionResponse,
-    kind: InteractionResponseType,
+    embed: &mut CreateEmbed,
     initiator: String,
     yep_members: HashMap<UserId, String>,
     nope_members: HashMap<UserId, String>,
-) -> &mut CreateInteractionResponse {
+) -> &mut CreateEmbed {
     let yep = match yep_members.is_empty() {
         true => "-".to_string(),
         false => yep_members
@@ -196,16 +212,12 @@ fn skip_embed(
             .join("\n"),
     };
 
-    response.kind(kind).interaction_response_data(|d| {
-        d.create_embed(|e| {
-            e.title(format!(
-                "{} wants to skip current track, who's with them?",
-                initiator
-            ))
-            .description("You have 15 seconds to vote.")
-            .field("Nope", nope, true)
-            .field("Yep", yep, true)
-        })
-        .components(|c| c.add_action_row(SkipBtn::action_row()))
-    })
+    embed
+        .title(format!(
+            "{} wants to skip current track, who's with them?",
+            initiator
+        ))
+        .description("You have 15 seconds to vote.")
+        .field("Nope", nope, true)
+        .field("Yep", yep, true)
 }

@@ -1,12 +1,11 @@
-use crate::cmd::{check_msg, interaction_reply, Res};
+use crate::cmd::{check_msg, defer_interaction, Res};
+use serenity::futures::future::try_join;
 use serenity::{
     builder::{CreateActionRow, CreateButton, CreateComponents},
     client::Context,
     model::interactions::application_command::ApplicationCommandInteraction,
     model::interactions::message_component::ButtonStyle,
-    model::interactions::{
-        InteractionApplicationCommandCallbackDataFlags, InteractionResponseType,
-    },
+    model::interactions::InteractionResponseType,
     prelude::Mentionable,
 };
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -47,6 +46,13 @@ impl StopBtn {
 }
 
 pub async fn stop(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
+    check_msg(
+        cmd.create_interaction_response(&ctx.http, |response| {
+            defer_interaction(response, None, true)
+        })
+        .await,
+    );
+
     let manager = songbird::get(ctx)
         .await
         .expect("Songbird Voice client placed in at initialisation.")
@@ -57,13 +63,10 @@ pub async fn stop(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
         let queue = handler.queue();
 
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                response.kind(InteractionResponseType::ChannelMessageWithSource);
-                response.interaction_response_data(|d| {
-                    d.content("You are about to stop playback and purge the queue")
-                        .flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL)
-                        .components(|c| c.add_action_row(StopBtn::action_row()))
-                })
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response
+                    .content("You are about to stop playback and purge the queue")
+                    .components(|c| c.add_action_row(StopBtn::action_row()))
             })
             .await,
         );
@@ -87,20 +90,22 @@ pub async fn stop(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
                 match res.data.custom_id.as_str() {
                     "proceed" => {
                         let _ = queue.stop();
-                        res.delete_original_interaction_response(&ctx.http)
-                            .await
-                            .unwrap();
-                        check_msg(
+                        let _ = try_join(
+                            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                                response
+                                    .content("Acknowledged")
+                                    .components(|c| c.set_action_rows(Vec::new()))
+                            }),
                             res.create_interaction_response(&ctx.http, |response| {
-                                response.interaction_response_data(|d| {
-                                    d.content(format!(
+                                response.interaction_response_data(|message| {
+                                    message.content(format!(
                                         "⏹ {} stopped and cleared queue",
                                         cmd.user.mention()
                                     ))
                                 })
-                            })
-                            .await,
-                        );
+                            }),
+                        )
+                        .await;
                     }
                     _ => {
                         check_msg(
@@ -119,12 +124,8 @@ pub async fn stop(ctx: &Context, cmd: &ApplicationCommandInteraction) -> Res {
         }
     } else {
         check_msg(
-            cmd.create_interaction_response(&ctx.http, |response| {
-                interaction_reply(
-                    response,
-                    "Not playing in a voice channel.".to_string(),
-                    true,
-                )
+            cmd.edit_original_interaction_response(&ctx.http, |response| {
+                response.content("Not playing in a voice channel.")
             })
             .await,
         );

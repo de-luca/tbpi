@@ -22,6 +22,24 @@ pub fn check_msg<T>(result: SerenityResult<T>) {
     }
 }
 
+pub fn defer_interaction(
+    response: &mut CreateInteractionResponse,
+    content: Option<String>,
+    ephemeral: bool,
+) -> &mut CreateInteractionResponse {
+    response
+        .kind(InteractionResponseType::DeferredChannelMessageWithSource)
+        .interaction_response_data(|message| {
+            if let Some(c) = content {
+                message.content(c);
+            }
+            if ephemeral {
+                message.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
+            }
+            message
+        })
+}
+
 pub fn interaction_reply(
     response: &mut CreateInteractionResponse,
     content: String,
